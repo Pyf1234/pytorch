@@ -1,0 +1,74 @@
+#包的引入
+import torch
+import torch.onnx as onns
+from torch import nn
+from torchvision import datasets,transforms
+from torch.utils.data import DataLoader
+
+#pyf神经网络定义
+class net(nn.Module):
+    def __init__(self):
+        super(net,self).__init__()
+        self.lay0=nn.Flatten()
+        self.lay1=nn.Linear(28*28,512)
+        self.lay2=nn.ReLU()
+        self.lay3=nn.Linear(512,512)
+        self.lay4=nn.ReLU()
+        self.lay5=nn.Linear(512,10)
+    def forward(self, x):
+        x=self.lay0(x)
+        x=self.lay1(x)
+        x=self.lay2(x)
+        x=self.lay3(x)
+        x=self.lay4(x)
+        x=self.lay5(x)
+        return x
+
+#训练函数
+def train(mod,lofun,datalodaer,optimizer):
+    for data,label in datalodaer:
+        #计算误差
+        prediction=mod(data)
+        loss=lofun(prediction,label)
+        #优化模型
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    print("训练完成\n")
+
+#此处问一下学长
+#测试函数
+def test(mod,dataloader):
+    correct=0.0
+    size = len(dataloader.dataset)
+    #测试的时候我们不需要追溯计算历史，故关闭追踪
+    with torch.no_grad():
+        #每正确一次correct加1，最后计算正确的概率
+        for data,label in dataloader:
+            prediction=mod(data)
+            correct+=(prediction.argmax(1) == label).type(torch.float).sum().item()
+        correct/=size
+        correct*=100
+        print("正确率为：",correct,"%\n")
+
+#实例化模型，误差函数和优化器,并确定训练次数和测试次数times
+mynet=net()
+mynet=torch.load("firstnet.pth")
+loss_ca=nn.CrossEntropyLoss()
+learning_rate=1e-3
+opti=torch.optim.SGD(mynet.parameters(),lr=learning_rate)
+times=5
+batch=64
+transformer=transforms.ToTensor()
+
+#数据的装载
+trainsets=datasets.MNIST("data",train=True,transform=transformer,download=True)
+testsets=datasets.MNIST("data",train=False,transform=transformer,download=True)
+trainloader=DataLoader(dataset=trainsets,shuffle=True,batch_size=batch)
+testloader=DataLoader(dataset=testsets,shuffle=True,batch_size=batch)
+
+train(mynet,loss_ca,trainloader,opti)
+test(mynet,testloader)
+
+#将优化后的模型参数存在本地文件中
+torch.save(mynet,"firstnet.pth")
