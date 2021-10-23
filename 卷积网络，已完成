@@ -1,0 +1,107 @@
+#包的引入
+import torch
+import torch.onnx as onns
+from torch import nn
+from torchvision import datasets,transforms
+from torch.utils.data import DataLoader
+import torch.nn.functional as F
+
+#超参数
+Batch=64
+times=10
+Device=torch.device("cuda")
+
+#pyf神经网络定义
+class net(nn.Module):
+    def __init__(self):
+        super(net,self).__init__()
+        self.lay0=nn.Flatten()
+        self.lay1=nn.Linear(28*28,512)
+        self.lay2=nn.ReLU()
+        self.lay3=nn.Linear(512,512)
+        self.lay4=nn.ReLU()
+        self.lay5=nn.Linear(512,10)
+    def forward(self, x):
+        x=self.lay0(x)
+        x=self.lay1(x)
+        x=self.lay2(x)
+        x=self.lay3(x)
+        x=self.lay4(x)
+        x=self.lay5(x)
+        return x
+
+#pyf卷积网络定义
+class convnet(nn.Module):
+    def __init__(self):
+        super().__init__()
+        # batch*1*28*28（每次会送入batch个样本，输入通道数1（黑白图像），图像分辨率是28x28）
+        # 下面的卷积层Conv2d的第一个参数指输入通道数，第二个参数指输出通道数，第三个参数指卷积核的大小
+        self.conv1 = nn.Conv2d(1, 10, 5) # 输入通道数1，输出通道数10，核的大小5
+        self.conv2 = nn.Conv2d(10, 20, 3) # 输入通道数10，输出通道数20，核的大小3
+        # 下面的全连接层Linear的第一个参数指输入通道数，第二个参数指输出通道数
+        self.fc1 = nn.Linear(20*10*10, 500) # 输入通道数是2000，输出通道数是500
+        self.fc2 = nn.Linear(500, 10) # 输入通道数是500，输出通道数是10，即10分类
+    def forward(self,x):
+        in_size = x.size(0) # 在本例中in_size=512，也就是BATCH_SIZE的值。输入的x可以看成是512*1*28*28的张量。
+        out = self.conv1(x) # batch*1*28*28 -> batch*10*24*24（28x28的图像经过一次核为5x5的卷积，输出变为24x24）
+        out = F.relu(out) # batch*10*24*24（激活函数ReLU不改变形状））
+        out = F.max_pool2d(out, 2, 2) # batch*10*24*24 -> batch*10*12*12（2*2的池化层会减半）
+        out = self.conv2(out) # batch*10*12*12 -> batch*20*10*10（再卷积一次，核的大小是3）
+        out = F.relu(out) # batch*20*10*10
+        out = out.view(in_size, -1) # batch*20*10*10 -> batch*2000（out的第二维是-1，说明是自动推算，本例中第二维是20*10*10）
+        out = self.fc1(out) # batch*2000 -> batch*500
+        out = F.relu(out) # batch*500
+        out = self.fc2(out) # batch*500 -> batch*10
+        out = F.log_softmax(out, dim=1) # 计算log(softmax(x))
+        return out
+
+#训练函数
+def train(mod,lofun,datalodaer,optimizer):
+    for data,label in datalodaer:
+        #计算误差
+        data=data.to(Device)
+        label=label.to(Device)
+        prediction=mod(data)
+        loss=lofun(prediction,label)
+        #优化模型
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    print("训练完成\n")
+
+#测试函数
+def test(mod,dataloader):
+    correct=0.0
+    size = len(dataloader.dataset)
+    #测试的时候我们不需要追溯计算历史，故关闭追踪
+    with torch.no_grad():
+        #每正确一次correct加1，最后计算正确的概率
+        for data,label in dataloader:
+            data=data.to(Device)
+            label=label.to(Device)
+            prediction=mod(data)
+            correct+=(prediction.argmax(1) == label).type(torch.float).sum().item()
+        correct/=size
+        correct*=100
+        print("正确率为：",correct,"%\n")
+
+#数据集装载
+#Normalize的参数目前不懂，后期再学习
+train_loader=DataLoader(dataset=datasets.MNIST("data",train=True,transform=transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
+                       ])),shuffle=True,batch_size=Batch)
+test_loader=DataLoader(dataset=datasets.MNIST("data",train=False,transform=transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
+                       ])),shuffle=True,batch_size=Batch)
+
+#创建模型，注册优化器，确定损失函数
+mynet=convnet().to(Device)
+optimizer = torch.optim.Adam(mynet.parameters())
+lossfunction=nn.NLLLoss()
+
+
+for i in range(times):
+    train(mod=mynet,lofun=lossfunction,datalodaer=train_loader,optimizer=optimizer)
+    test(mod=mynet,dataloader=test_loader)
