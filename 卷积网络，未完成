@@ -1,0 +1,69 @@
+#pyf卷积网络定义
+class convnet(nn.Module):
+    def __init__(self):
+        super(convnet, self).__init__()
+        self.lay0=nn.Conv2d(1,10,5)#输入单通道，输出10通道，卷积核大小为5
+        self.lay1=nn.ReLU()
+        self.lay2=nn.MaxPool2d(2,2)#池化后大小减半
+        self.lay3=nn.Conv2d(10,20,3)#输入10通道，输出20通道，卷积核大小为3
+        self.lay4=nn.ReLU()
+        self.lay5=nn.Linear(2000,500)#线性层，由2000映射为500
+        self.lay6=nn.ReLU()
+        self.lay7=nn.Linear(500,10)#线性层，由200映射为10
+        self.lay8=nn.LogSoftmax(dim=1)
+    def forward(self,x):
+        x=self.lay0(x)
+        x=self.lay1(x)
+        x=self.lay2(x)
+        x=self.lay3(x)
+        x=self.lay4(x)
+        x=x.view(Batch,-1)
+        x=self.lay5(x)
+        x=self.lay6(x)
+        x=self.lay7(x)
+        x=self.lay8(x)
+        return x
+
+#训练函数
+def train(mod,lofun,datalodaer,optimizer):
+    for data,label in datalodaer:
+        #计算误差
+        data=data.to(Device)
+        label=label.to(Device)
+        prediction=mod(data)
+        loss=lofun(prediction,label)
+        #优化模型
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    print("训练完成\n")
+
+#测试函数
+def test(mod,dataloader):
+    correct=0.0
+    size = len(dataloader.dataset)
+    #测试的时候我们不需要追溯计算历史，故关闭追踪
+    with torch.no_grad():
+        #每正确一次correct加1，最后计算正确的概率
+        for data,label in dataloader:
+            data=data.to(Device)
+            label=label.to(Device)
+            prediction=mod(data)
+            correct+=(prediction.argmax(1) == label).type(torch.float).sum().item()
+        correct/=size
+        correct*=100
+        print("正确率为：",correct,"%\n")
+
+#数据集装载
+#Normalize的参数目前不懂，后期再学习
+train_loader=DataLoader(dataset=datasets.MNIST("data",train=True,transform=transforms.ToTensor(),target_transform=transforms.Normalize((0.1307,), (0.3081,))),shuffle=True,batch_size=Batch)
+test_loader=DataLoader(dataset=datasets.MNIST("data",train=False,transform=transforms.ToTensor(),target_transform=transforms.Normalize((0.1307,), (0.3081,))),shuffle=True,batch_size=Batch)
+
+#创建模型，注册优化器，确定损失函数
+mynet=convnet().to(Device)
+optimizer = torch.optim.Adam(mynet.parameters())
+lossfunction=nn.NLLLoss()
+
+for i in range(times):
+    train(mod=mynet,lofun=lossfunction,datalodaer=train_loader,optimizer=optimizer)
+    test(mod=mynet,dataloader=test_loader)
