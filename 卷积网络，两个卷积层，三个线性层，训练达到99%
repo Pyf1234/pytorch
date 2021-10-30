@@ -1,0 +1,118 @@
+import torch
+import torch.onnx as onns
+from torch import nn
+import torchvision
+from torchvision import datasets,transforms
+from torch.utils.data import DataLoader
+import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
+import matplotlib.pyplot as plt
+import numpy as np
+
+#超参数
+Batch=64
+times=10
+Device=torch.device("cuda")
+
+#pyf神经网络定义
+class net(nn.Module):
+    def __init__(self):
+        super(net,self).__init__()
+        self.lay0=nn.Flatten()
+        self.lay1=nn.Linear(28*28,512)
+        self.lay2=nn.ReLU()
+        self.lay3=nn.Linear(512,512)
+        self.lay4=nn.ReLU()
+        self.lay5=nn.Linear(512,10)
+    def forward(self, x):
+        x=self.lay0(x)
+        x=self.lay1(x)
+        x=self.lay2(x)
+        x=self.lay3(x)
+        x=self.lay4(x)
+        x=self.lay5(x)
+        return x
+
+#pyf卷积网络定义
+class convnet(nn.Module):
+    def __init__(self):
+        super(convnet, self).__init__()
+        self.con1=nn.Conv2d(1,6,5)
+        self.con2=nn.Conv2d(6,16,5)
+        self.pool=nn.MaxPool2d(2,2)
+        self.l1=nn.Linear(16*4*4,120)
+        self.l2=nn.Linear(120,80)
+        self.l3=nn.Linear(80,10)
+    def forward(self,x):
+        x=self.con1(x)
+        x=F.relu(x)
+        x=self.pool(x)
+        x=self.con2(x)
+        x=F.relu(x)
+        x=self.pool(x)
+        x=x.view(-1,16*4*4)
+        x=F.relu(self.l1(x))
+        x=F.relu(self.l2(x))
+        x=self.l3(x)
+        return x
+
+#训练函数
+def train(mod,lofun,datalodaer,optimizer):
+    for data,label in datalodaer:
+        #计算误差
+        data=data.to(Device)
+        label=label.to(Device)
+        prediction=mod(data)
+        loss=lofun(prediction,label)
+        #优化模型
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+    print("训练完成\n")
+
+#测试函数
+def test(mod,dataloader):
+    correct=0.0
+    size = len(dataloader.dataset)
+    #测试的时候我们不需要追溯计算历史，故关闭追踪
+    with torch.no_grad():
+        #每正确一次correct加1，最后计算正确的概率
+        for data,label in dataloader:
+            data=data.to(Device)
+            label=label.to(Device)
+            prediction=mod(data)
+            correct+=(prediction.argmax(1) == label).type(torch.float).sum().item()
+        correct/=size
+        correct*=100
+        print("正确率为：",correct,"%\n")
+
+def matplotlib_imshow(img, one_channel=False):
+    if one_channel:
+        img = img.mean(dim=0)
+    img = img / 2 + 0.5     # unnormalize
+    npimg = img.numpy()
+    if one_channel:
+        plt.imshow(npimg, cmap="Greys")
+    else:
+        plt.imshow(np.transpose(npimg, (1, 2, 0)))
+
+#数据集装载
+#Normalize的参数目前不懂，后期再学习
+train_loader=DataLoader(dataset=datasets.MNIST("data",train=True,transform=transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
+                       ])),shuffle=True,batch_size=Batch)
+test_loader=DataLoader(dataset=datasets.MNIST("data",train=False,transform=transforms.Compose([
+                           transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
+                       ])),shuffle=True,batch_size=Batch)
+
+#创建模型，注册优化器，确定损失函数
+mynet=convnet().to("cuda")
+#mynet=torch.load("con.pth").to("cuda")
+optimizer = torch.optim.SGD(mynet.parameters(),lr=0.01,momentum=0.9)
+lossfunction=nn.CrossEntropyLoss()
+for i in range(times):
+    train(mod=mynet,lofun=lossfunction,datalodaer=train_loader,optimizer=optimizer)
+    test(mod=mynet,dataloader=test_loader)
+torch.save(mynet,"con.pth")
